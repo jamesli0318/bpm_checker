@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>180 BPM Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            padding: 40px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 40px;
+            opacity: 0.8;
+            font-weight: 400;
+        }
+
+        .bpm-display {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            margin: 0 auto 40px;
+        }
+
+        .bpm-circle {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .bpm-circle.is-180 {
+            border-color: #00ff88;
+            box-shadow: 0 0 60px rgba(0, 255, 136, 0.3);
+            animation: pulse 0.333s ease-in-out infinite;
+        }
+
+        .bpm-circle.not-180 {
+            border-color: #ff4757;
+            box-shadow: 0 0 30px rgba(255, 71, 87, 0.2);
+        }
+
+        .bpm-circle.waiting {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.02);
+            }
+        }
+
+        .bpm-value {
+            font-size: 5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 10px;
+        }
+
+        .bpm-label {
+            font-size: 1.5rem;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .status {
+            font-size: 1.2rem;
+            padding: 15px 30px;
+            border-radius: 50px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+
+        .status.is-180 {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .status.not-180 {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        .status.waiting {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .status.error {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: scale(1.05);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        .btn-start {
+            background: #00ff88;
+            color: #1a1a2e;
+        }
+
+        .btn-start:hover:not(:disabled) {
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+        }
+
+        .btn-stop {
+            background: #ff4757;
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            box-shadow: 0 0 30px rgba(255, 71, 87, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .info {
+            margin-top: 40px;
+            opacity: 0.5;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>180 BPM Detector</h1>
+
+        <div class="bpm-display">
+            <div class="bpm-circle waiting" id="bpmCircle">
+                <div class="bpm-value" id="bpmValue">--</div>
+                <div class="bpm-label">BPM</div>
+            </div>
+        </div>
+
+        <div class="status waiting" id="status">
+            Stopped
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" id="startBtn">Start</button>
+            <button class="btn btn-stop" id="stopBtn" disabled>Stop</button>
+        </div>
+
+        <div class="info">
+            Target: 180 BPM (175-185)
+        </div>
+    </div>
+
+    <!-- Issue #8: Use specific version, consider self-hosting for production -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"
+            integrity="sha384-mZLO/BzgmYgB4zNwONGDC0GlS+nSNMD8EEgM0LF+XvMIcpW3qd+nSLz+Vf0qK0qk"
+            crossorigin="anonymous"></script>
+    <script>
+        const socket = io();
+        const bpmValue = document.getElementById('bpmValue');
+        const bpmCircle = document.getElementById('bpmCircle');
+        const status = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+
+        // Issue #15: Track state properly, don't assume success
+        let isRunning = false;
+        let pendingStart = false;
+        let pendingStop = false;
+
+        function updateButtons() {
+            startBtn.disabled = isRunning || pendingStart;
+            stopBtn.disabled = !isRunning || pendingStop;
+        }
+
+        function setStateClass(element, stateClass) {
+            element.classList.remove('is-180', 'not-180', 'waiting', 'error');
+            element.classList.add(stateClass);
+        }
+
+        function resetDisplay() {
+            bpmValue.textContent = '--';
+            setStateClass(bpmCircle, 'waiting');
+            setStateClass(status, 'waiting');
+            status.textContent = 'Stopped';
+        }
+
+        // Issue #15: Wait for server confirmation before updating UI
+        startBtn.addEventListener('click', () => {
+            pendingStart = true;
+            updateButtons();
+            status.textContent = 'Starting...';
+            socket.emit('start');
+        });
+
+        stopBtn.addEventListener('click', () => {
+            pendingStop = true;
+            updateButtons();
+            status.textContent = 'Stopping...';
+            socket.emit('stop');
+        });
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        // Issue #15: Handle server status on connect
+        socket.on('status', (data) => {
+            isRunning = data.is_running;
+            updateButtons();
+            if (!isRunning) {
+                resetDisplay();
+            }
+        });
+
+        // Issue #14: Handle start acknowledgment
+        socket.on('start_ack', (data) => {
+            pendingStart = false;
+            if (data.success) {
+                isRunning = true;
+                status.textContent = 'Listening...';
+                setStateClass(status, 'waiting');
+            } else {
+                setStateClass(status, 'error');
+                status.textContent = 'Error: ' + (data.error || 'Failed to start');
+            }
+            updateButtons();
+        });
+
+        // Issue #14: Handle stop acknowledgment
+        socket.on('stop_ack', (data) => {
+            pendingStop = false;
+            isRunning = false;
+            updateButtons();
+            resetDisplay();
+        });
+
+        socket.on('bpm_update', (data) => {
+            if (!isRunning) return;
+
+            bpmValue.textContent = Math.round(data.bpm);
+
+            if (data.is_180) {
+                setStateClass(bpmCircle, 'is-180');
+                setStateClass(status, 'is-180');
+                status.textContent = '180 BPM!';
+            } else {
+                setStateClass(bpmCircle, 'not-180');
+                setStateClass(status, 'not-180');
+                status.textContent = 'Not 180 BPM';
+            }
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            isRunning = false;
+            pendingStart = false;
+            pendingStop = false;
+            updateButtons();
+            setStateClass(status, 'error');
+            status.textContent = 'Disconnected';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>180 BPM Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            padding: 40px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 40px;
+            opacity: 0.8;
+            font-weight: 400;
+        }
+
+        .bpm-display {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            margin: 0 auto 40px;
+        }
+
+        .bpm-circle {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .bpm-circle.is-180 {
+            border-color: #00ff88;
+            box-shadow: 0 0 60px rgba(0, 255, 136, 0.3);
+            animation: pulse 0.333s ease-in-out infinite;
+        }
+
+        .bpm-circle.not-180 {
+            border-color: #ff4757;
+            box-shadow: 0 0 30px rgba(255, 71, 87, 0.2);
+        }
+
+        .bpm-circle.waiting {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.02);
+            }
+        }
+
+        .bpm-value {
+            font-size: 5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 10px;
+        }
+
+        .bpm-label {
+            font-size: 1.5rem;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .status {
+            font-size: 1.2rem;
+            padding: 15px 30px;
+            border-radius: 50px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+
+        .status.is-180 {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .status.not-180 {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        .status.waiting {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: scale(1.05);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        .btn-start {
+            background: #00ff88;
+            color: #1a1a2e;
+        }
+
+        .btn-start:hover:not(:disabled) {
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+        }
+
+        .btn-stop {
+            background: #ff4757;
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            box-shadow: 0 0 30px rgba(255, 71, 87, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .info {
+            margin-top: 40px;
+            opacity: 0.5;
+            font-size: 0.9rem;
+        }
+
+        .error {
+            color: #ff4757;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>180 BPM Detector</h1>
+
+        <div class="bpm-display">
+            <div class="bpm-circle waiting" id="bpmCircle">
+                <div class="bpm-value" id="bpmValue">--</div>
+                <div class="bpm-label">BPM</div>
+            </div>
+        </div>
+
+        <div class="status waiting" id="status">
+            Click Start
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" id="startBtn">Start</button>
+            <button class="btn btn-stop" id="stopBtn" disabled>Stop</button>
+        </div>
+
+        <div class="info">
+            Target: 180 BPM (175-185)
+        </div>
+
+        <div class="error" id="error"></div>
+    </div>
+
+    <script>
+        // ============================================
+        // Issue #17: Named Constants (no magic numbers)
+        // ============================================
+        const CONFIG = {
+            TARGET_BPM: 180,
+            TOLERANCE: 5,                    // ±5 BPM
+            FFT_SIZE: 2048,
+            SMOOTHING: 0.3,
+
+            // Beat detection parameters
+            ENERGY_HISTORY_SIZE: 43,         // ~1 second at ~43 fps (requestAnimationFrame)
+            ENERGY_THRESHOLD_MULTIPLIER: 1.4, // Energy must exceed avg * 1.4 to be a beat
+            ENERGY_RISE_THRESHOLD: 1.1,      // Energy must rise by 10% from last frame
+            MIN_BEAT_INTERVAL_MS: 300,       // Minimum 300ms between beats (200 BPM max)
+            MAX_ONSETS_STORED: 20,           // Keep last 20 beat timestamps
+            MEDIAN_FILTER_TOLERANCE: 0.3,    // Filter intervals within 30% of median
+            MIN_INTERVALS_FOR_BPM: 3,        // Need at least 3 intervals to calculate BPM
+            BPM_HISTORY_SIZE: 5,             // Smooth BPM over 5 samples
+            BASS_FREQUENCY_RATIO: 0.1        // Focus on lower 10% of frequencies
+        };
+
+        // ============================================
+        // BPM Detection using Web Audio API
+        // ============================================
+        class BPMDetector {
+            constructor(config = CONFIG) {
+                this.config = config;
+                this.audioContext = null;
+                this.analyser = null;
+                this.microphone = null;
+                this.stream = null;
+                this.isRunning = false;
+                this.onsets = [];
+                this.lastEnergy = 0;
+                this.energyHistory = [];
+                this.bpmHistory = [];
+            }
+
+            async start() {
+                try {
+                    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = this.config.FFT_SIZE;
+                    this.analyser.smoothingTimeConstant = this.config.SMOOTHING;
+
+                    this.microphone = this.audioContext.createMediaStreamSource(this.stream);
+                    this.microphone.connect(this.analyser);
+
+                    this.isRunning = true;
+                    this.onsets = [];
+                    this.energyHistory = [];
+                    this.bpmHistory = [];
+                    this.lastEnergy = 0;
+
+                    this.detectBeats();
+                    return true;
+                } catch (err) {
+                    console.error('Microphone access error:', err);
+                    throw err;
+                }
+            }
+
+            stop() {
+                this.isRunning = false;
+
+                if (this.microphone) {
+                    this.microphone.disconnect();
+                    this.microphone = null;
+                }
+
+                if (this.audioContext) {
+                    this.audioContext.close();
+                    this.audioContext = null;
+                }
+
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+
+                this.analyser = null;
+            }
+
+            detectBeats() {
+                if (!this.isRunning || !this.analyser) return;
+
+                const bufferLength = this.analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                this.analyser.getByteFrequencyData(dataArray);
+
+                // Calculate energy from bass frequencies
+                let energy = 0;
+                const bassEnd = Math.floor(bufferLength * this.config.BASS_FREQUENCY_RATIO);
+                for (let i = 0; i < bassEnd; i++) {
+                    energy += dataArray[i] * dataArray[i];
+                }
+                energy = Math.sqrt(energy / bassEnd);
+
+                // Maintain energy history for dynamic threshold
+                this.energyHistory.push(energy);
+                if (this.energyHistory.length > this.config.ENERGY_HISTORY_SIZE) {
+                    this.energyHistory.shift();
+                }
+
+                // Calculate dynamic threshold based on average energy
+                const avgEnergy = this.energyHistory.reduce((a, b) => a + b, 0) / this.energyHistory.length;
+                const threshold = avgEnergy * this.config.ENERGY_THRESHOLD_MULTIPLIER;
+
+                // Detect onset (beat) when energy exceeds threshold and is rising
+                const now = performance.now();
+                const isEnergyHigh = energy > threshold;
+                const isEnergyRising = energy > this.lastEnergy * this.config.ENERGY_RISE_THRESHOLD;
+                const lastOnsetTime = this.onsets.length > 0 ? this.onsets[this.onsets.length - 1] : 0;
+                const timeSinceLastOnset = now - lastOnsetTime;
+
+                if (isEnergyHigh && isEnergyRising && timeSinceLastOnset > this.config.MIN_BEAT_INTERVAL_MS) {
+                    this.onsets.push(now);
+
+                    // Limit stored onsets
+                    if (this.onsets.length > this.config.MAX_ONSETS_STORED) {
+                        this.onsets.shift();
+                    }
+                }
+
+                this.lastEnergy = energy;
+
+                // Calculate BPM from onset intervals
+                if (this.onsets.length >= 4) {
+                    const intervals = [];
+                    for (let i = 1; i < this.onsets.length; i++) {
+                        intervals.push(this.onsets[i] - this.onsets[i - 1]);
+                    }
+
+                    // Use median filtering to remove outliers
+                    const sortedIntervals = [...intervals].sort((a, b) => a - b);
+                    const medianInterval = sortedIntervals[Math.floor(sortedIntervals.length / 2)];
+
+                    // Keep intervals within tolerance of median
+                    const tolerance = this.config.MEDIAN_FILTER_TOLERANCE;
+                    const filteredIntervals = intervals.filter(
+                        i => i > medianInterval * (1 - tolerance) && i < medianInterval * (1 + tolerance)
+                    );
+
+                    if (filteredIntervals.length >= this.config.MIN_INTERVALS_FOR_BPM) {
+                        const avgInterval = filteredIntervals.reduce((a, b) => a + b, 0) / filteredIntervals.length;
+                        const bpm = 60000 / avgInterval;
+
+                        // Smooth BPM with moving average
+                        this.bpmHistory.push(bpm);
+                        if (this.bpmHistory.length > this.config.BPM_HISTORY_SIZE) {
+                            this.bpmHistory.shift();
+                        }
+
+                        const smoothedBpm = this.bpmHistory.reduce((a, b) => a + b, 0) / this.bpmHistory.length;
+                        const is180 = Math.abs(smoothedBpm - this.config.TARGET_BPM) <= this.config.TOLERANCE;
+
+                        if (this.onBPMUpdate) {
+                            this.onBPMUpdate(Math.round(smoothedBpm), is180);
+                        }
+                    }
+                }
+
+                requestAnimationFrame(() => this.detectBeats());
+            }
+        }
+
+        // ============================================
+        // UI Controller
+        // ============================================
+        const bpmValue = document.getElementById('bpmValue');
+        const bpmCircle = document.getElementById('bpmCircle');
+        const status = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const errorDiv = document.getElementById('error');
+
+        const detector = new BPMDetector();
+
+        function setStateClass(element, stateClass) {
+            element.classList.remove('is-180', 'not-180', 'waiting');
+            element.classList.add(stateClass);
+        }
+
+        function updateUI(bpm, is180) {
+            bpmValue.textContent = bpm;
+
+            if (is180) {
+                setStateClass(bpmCircle, 'is-180');
+                setStateClass(status, 'is-180');
+                status.textContent = '180 BPM!';
+            } else {
+                setStateClass(bpmCircle, 'not-180');
+                setStateClass(status, 'not-180');
+                status.textContent = 'Not 180 BPM';
+            }
+        }
+
+        function resetUI() {
+            bpmValue.textContent = '--';
+            setStateClass(bpmCircle, 'waiting');
+            setStateClass(status, 'waiting');
+            status.textContent = 'Stopped';
+            errorDiv.textContent = '';
+        }
+
+        detector.onBPMUpdate = updateUI;
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                errorDiv.textContent = '';
+                status.textContent = 'Listening...';
+                await detector.start();
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } catch (err) {
+                errorDiv.textContent = 'Unable to access microphone. Please allow microphone access.';
+                resetUI();
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            detector.stop();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            resetUI();
+        });
+    </script>
+</body>
+</html>
