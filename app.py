@@ -343,7 +343,13 @@ if __name__ == '__main__':
     # Start BPM monitor in background
     socketio.start_background_task(bpm_monitor)
 
-    # Issue #10: Note about production deployment
-    # For production, use gunicorn with gevent worker:
-    # gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 app:app
+    # Issue #10: Production deployment warning
+    if os.environ.get('FLASK_ENV') == 'production':
+        print("\n" + "=" * 60)
+        print("WARNING: Werkzeug dev server is not suitable for production!")
+        print("Use gunicorn instead:")
+        print("  gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 app:app")
+        print("=" * 60 + "\n")
+
+    # Development server (use gunicorn for production)
     socketio.run(app, host='0.0.0.0', port=8080, debug=False, allow_unsafe_werkzeug=True)
