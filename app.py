@@ -54,6 +54,12 @@ class AudioStateManager:
     """
     Manages audio state with proper locking and pre-allocated buffer.
     Addresses: race conditions, memory leaks, global state issues.
+
+    Note: This is a singleton by design. All clients share one audio stream.
+    This is intentional for a single-device BPM detector where one microphone
+    is shared across all connected browser tabs. If multi-client isolation
+    is needed, consider per-session AudioStateManager instances with
+    Socket.IO rooms.
     """
 
     def __init__(self):
