@@ -17,7 +17,9 @@ import librosa
 import gevent
 from gevent.lock import RLock
 from gevent.event import Event
-from flask import Flask, render_template
+from functools import wraps
+from time import time as get_time
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 
 # Configure logging
@@ -244,6 +246,36 @@ def index():
 
 
 # ============================================
+# Rate Limiting (Issue #11)
+# ============================================
+_rate_limits = {}
+
+def rate_limit(max_calls=10, period=60):
+    """Simple rate limiter decorator for Socket.IO events."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            sid = request.sid
+            now = get_time()
+
+            if sid not in _rate_limits:
+                _rate_limits[sid] = []
+
+            # Clean old entries
+            _rate_limits[sid] = [t for t in _rate_limits[sid] if now - t < period]
+
+            if len(_rate_limits[sid]) >= max_calls:
+                logger.warning(f'Rate limit exceeded for {sid}')
+                emit('error', {'message': 'Rate limit exceeded. Please wait.'})
+                return
+
+            _rate_limits[sid].append(now)
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+# ============================================
 # Socket.IO Event Handlers
 # ============================================
 @socketio.on('connect')
@@ -256,12 +288,16 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info('Client disconnected')
+    # Clean up rate limit tracking for disconnected client
+    sid = request.sid
+    if sid in _rate_limits:
+        del _rate_limits[sid]
 
 
 @socketio.on('start')
+@rate_limit(max_calls=10, period=60)
 def handle_start():
     """Handle start event from client."""
-    # Issue #11: Basic validation (could add rate limiting here)
     logger.info('Start request received')
 
     try:
@@ -280,6 +316,7 @@ def handle_start():
 
 
 @socketio.on('stop')
+@rate_limit(max_calls=10, period=60)
 def handle_stop():
     """Handle stop event from client."""
     logger.info('Stop request received')
